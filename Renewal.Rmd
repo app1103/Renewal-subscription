@@ -1,0 +1,214 @@
+---
+title: "subs"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+subs<-X1_Renewal_Prediction_Data_Set
+y<-subs$Renewal
+cbind(freq=table(y), percentage=prop.table(table(y))*100)
+```
+
+```{r}
+sapply(subs,class)
+
+```
+
+```{r}
+summary(subs)
+```
+
+```{r}
+table(is.na(subs))
+table(subs$Renewal)
+table(is.na(subsc))
+table(subsc$Renewal)
+```
+
+```{r}
+table(subs$C1)
+```
+
+
+```{r}
+subs$C2<-as.numeric(subs$C2)
+summary(subs)
+
+```
+
+```{r}
+table(subs$C4)
+table(subs$C5)
+table(subs$C6)
+table(subs$C7)
+table(subs$C9)
+table(subs$C10)
+table(subs$C12)
+table(subs$C13)
+table(subs$C14)
+```
+
+```{r}
+subs$C14<-as.numeric(subs$C14)
+summary(subs$C14)
+```
+
+```{r}
+#Remove all incomplete rows as rows number of missing values are lesser compared to the number of samples and also the total number of samples is high, we can also choose to remove those rows in our analysis
+subs$C1[subs$C1=='?']<-NA
+subs$C4[subs$C4=='?']<-NA
+subs$C5[subs$C5=='?']<-NA
+subs$C6[subs$C6=='?']<-NA
+subs$C7[subs$C7=='?']<-NA
+subs$C14[subs$C14=='?']<-NA
+subsc<-subs[complete.cases(subs),]
+dim(subsc)
+summary(subsc)
+
+
+```
+
+```{r}
+#model 1 test
+subsc$Renewal<-as.factor(subsc$Renewal)
+control <- trainControl(method="cv", number=5)
+seed <- 7
+metric <- "Accuracy"
+set.seed(seed)
+fit.rf <- train(Renewal~., data=subsc, method="rf", metric=metric, trControl=control)
+fit.rf$results
+
+```
+```{r}
+
+#Feature importance
+set.seed(123)
+boruta.train <- Boruta(Renewal~., data = subsc, doTrace = 2)
+print(boruta.train)
+```
+
+```{r}
+plot(boruta.train, xlab = "", xaxt = "n")
+```
+```{r}
+
+```
+
+```{r}
+final.boruta <- TentativeRoughFix(boruta.train)
+print(final.boruta)
+#Let's obtain the list of confirmed attributes
+getSelectedAttributes(final.boruta, withTentative = F)
+```
+```{r}
+library(caret)
+# summarize data
+summary(subsc[,c(2,3,8,11,14,15)])
+# calculate the pre-process parameters from the dataset
+preprocessParams <- preProcess(subsc[,c(2,3,8,11,14,15)], method=c("range"))
+# summarize transform parameters
+print(preprocessParams)
+# transform the dataset using the parameters
+transformed <- predict(preprocessParams, subsc[,c(2,3,8,11,14,15)])
+# summarize the transformed dataset
+summary(transformed)
+subsc$C2<-transformed$C2
+subsc[,c(2,3,8,11,14,15)]<-transformed
+```
+
+```{r}
+subsc$Renewal<-as.factor(subsc$Renewal)
+control <- trainControl(method="cv", number=5)
+seed <- 7
+metric <- "Accuracy"
+set.seed(seed)
+fit.rf <- train(Renewal~C2+C3+C4+C5+C6+C7+C8+C9+C10+C11+C14+C15, data=subsc, method="rf", metric=metric, trControl=control)
+fit.rf$results
+```
+
+```{r}
+library(caret)
+# load the dataset
+# prepare training scheme
+control <- trainControl(method="repeatedcv", number=10, repeats=3)
+# CART
+set.seed(7)
+fit.cart <- train(Renewal~C2+C3+C4+C5+C6+C7+C8+C9+C10+C11+C14+C15, data=subsc, method="rpart", trControl=control)
+# LDA
+set.seed(7)
+fit.lda <- train(Renewal~C2+C3+C4+C5+C6+C7+C8+C9+C10+C11+C14+C15, data=subsc, method="lda", trControl=control)
+# SVM
+set.seed(7)
+fit.svm <- train(Renewal~C2+C3+C4+C5+C6+C7+C8+C9+C10+C11+C14+C15, data=subsc, method="svmRadial", trControl=control)
+# kNN
+set.seed(7)
+fit.knn <- train(Renewal~C2+C3+C4+C5+C6+C7+C8+C9+C10+C11+C14+C15, data=subsc, method="knn", trControl=control)
+# Random Forest
+set.seed(7)
+fit.rf <- train(Renewal~C2+C3+C4+C5+C6+C7+C8+C9+C10+C11+C14+C15, data=subsc, method="rf", trControl=control)
+# collect resamples
+results <- resamples(list(CART=fit.cart, LDA=fit.lda, SVM=fit.svm, KNN=fit.knn, RF=fit.rf))
+# box and whisker plots to compare models
+scales <- list(x=list(relation="free"), y=list(relation="free"))
+bwplot(results, scales=scales)
+#From below diag.of boxplot its clear Random Forest is giving us best Accuracy and kappa 
+```
+
+```{r}
+densityplot(results, scales=scales, pch = "|")
+```
+
+```{r}
+dotplot(results, scales=scales)
+#RF wins
+```
+
+```{r}
+parallelplot(results)
+```
+
+```{r}
+splom(results)
+# pair-wise scatterplots of accuracy measures to compare models
+splom(results, variables="metrics")
+```
+
+```{r}
+summary(results)
+```
+
+```{r}
+# xyplot plots to compare top 2 models
+xyplot(results, models=c("LDA", "RF"))
+```
+```{r}
+library(caret)
+# create 80%/20% for training and validation datasets
+set.seed(9)
+validation_index <- createDataPartition(subsc$Renewal, p=0.80, list=FALSE)
+validation <- subsc[-validation_index,]
+training <- subsc[validation_index,]
+# train a model and summarize model
+set.seed(9)
+control <- trainControl(method="cv", number=10)
+fit.rf <- train(Renewal~C2+C3+C4+C5+C6+C7+C8+C9+C10+C11+C14+C15, data=training, method="rf", metric="Accuracy", trControl=control, ntree=2000)
+print(fit.rf)
+print(fit.rf$finalModel)
+set.seed(7)
+finalModel <- randomForest(Renewal~C2+C3+C4+C5+C6+C7+C8+C9+C10+C11+C14+C15, training, mtry=2, ntree=2000)
+# make a predictions on "new data" using the final model
+final_predictions <- predict(fit.rf, validation[,1:15])
+confusionMatrix(final_predictions, validation$Renewal)
+
+
+```
+
+
+
+
+
